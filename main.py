@@ -7,25 +7,50 @@ from sklearn.feature_extraction.image import reconstruct_from_patches_2d
 from sklearn.decomposition import SparseCoder
 import itertools
 from time import time
+from pathlib import Path
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import datetime
 
+def preprocess_data(data_path, countries, cutoff_date):
+    df = pd.read_csv(data_path)
+    date_columns = list(df.columns[4:])
+    selected_dates = date_columns[:date_columns.index(cutoff_date) + 1]
+
+    return df.loc[
+        df["Country/Region"].isin(countries),
+        list(df.columns[:4]) + selected_dates,
+    ].copy()
+
 def main_train_joint():
     print('pre-training temporal dictionary started...')
 
-    path_confirmed = "COVID-19/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv"
-    path_deaths = "COVID-19/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv"
-    path_recovered = "COVID-19/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_recovered_global.csv"
+    confirmed_path = "COVID-19/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv"
+    deaths_path = "COVID-19/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv"
+    recovered_path = "COVID-19/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_recovered_global.csv"
 
-    foldername = 'joint12_00_4_1000'  ## for saving files
-    source = [path_confirmed, path_deaths, path_recovered]
+    foldername = 'reproduction_exp_1000'
+    source = [confirmed_path, deaths_path, recovered_path]
 
     n_components = 50
 
+    cutoff_date = "4/12/20" # Paper's dates: from Jan 19, 2020 to Apr. 12, 2020 -> missing Jan 19, 20, 21
     country_list = ['Korea, South', 'China', 'US', 'Italy', 'Germany', 'Spain']
-    reconstructor = time_series_tensor(path=path_confirmed,
+
+    data_dir = Path("Time_series_dictionary") / foldername
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    filtered_source = []
+    for original_path in source:
+        df = preprocess_data(original_path, country_list, cutoff_date)
+        output_path = data_dir / Path(original_path).name
+        df.to_csv(output_path, index=False)
+        filtered_source.append(str(output_path))
+
+    source = filtered_source
+
+    reconstructor = time_series_tensor(path=None,
                                        source=source,
                                        country_list=country_list,
                                        alpha=3,  # L1 sparsity regularizer
@@ -48,7 +73,8 @@ def main_train_joint():
                                        if_log_scale=True)
 
     L = 30
-    avg_iter = 1000
+    np.random.seed(42)
+    avg_iter = 1000 # To try first
     A_recons = []
     # W_old = W.copy()
     for step in np.arange(avg_iter):
@@ -81,7 +107,7 @@ def main_train_joint():
         print('Current iteration %i out of %i' % (step, avg_iter))
 
     A_recons = np.asarray(A_recons)
-    # np.save('Time_series_dictionary/' + str(foldername) + '/recons_nononline', A_recons)
+    np.save('Time_series_dictionary/' + str(foldername) + '/recons_nononline', A_recons)
 
     # print('change in dictionary after online learning', np.linalg.norm(W_old - W1))
 
